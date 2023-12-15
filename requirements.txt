@@ -1,0 +1,8 @@
+langchain
+openai
+chainlit
+chromadb
+tiktoken
+PyPDF2
+pymupdf
+pytesseract
