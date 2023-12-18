@@ -3,6 +3,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.prompts import SystemMessagePromptTemplate
 from langchain.prompts import HumanMessagePromptTemplate
 import PyPDF2
+from docx import Document
 from io import BytesIO
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
@@ -10,12 +11,28 @@ from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
 #from gpt4all import GPT4All
+import openai
 from openai import OpenAI
 import spacy
+import os
+import sys
 from typing import Optional
+import logging   
+import time
+import random
 
 
 llm = ChatOpenAI()
+backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 1))
+max_retries = int(os.getenv("MAX_RETRIES", 5))
+
+logging.basicConfig(stream = sys.stdout,
+                    format = '[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+                    level = logging.INFO)
+logger = logging.getLogger(__name__)
+
+def backoff(attempt : int) -> float:
+    return backoff_in_seconds * 2**attempt + random.uniform(0, 1)
 
 # local LLM but my computer sucks 
 #gpt = GPT4All("gpt4all-falcon-q4_0.gguf")
@@ -65,12 +82,23 @@ def get_completion(question):
     return response.choices[0].message.content
 
 def get_pdf_text(file):
-
+    
     pdf_stream = BytesIO(file.content)
-    pdf = PyPDF2.PdfReader(pdf_stream)
-    text = ""
-    for page in pdf.pages:
-        text += page.extract_text()
+    extension = file.name.split('.')[-1]
+
+    text = ''
+
+    if extension == "pdf":
+        reader = PyPDF2.PdfReader(pdf_stream)
+        for i in range(len(reader.pages)):
+            text +=  reader.pages[i].extract_text()
+    elif extension  ==  "docx":
+        doc = Document(pdf_stream)
+        paragraph_list = []
+        for paragraph in doc.paragraphs:
+            paragraph_list.append(paragraph.text)
+        text = '\n'.join(paragraph_list)
+    
     return text
 
 def get_text_chunks(text):
@@ -88,18 +116,18 @@ def get_text_chunks(text):
 async def get_vectorstore(text_chunks, metadatas):
     embeddings = OpenAIEmbeddings()
     #embeddings = HuggingFaceInstructEmbeddings(model_name = "hkunlp/instructor-xl")
-    docsearch = await cl.make_async(Chroma.from_texts)(
+    vstore = await cl.make_async(Chroma.from_texts)(
         text_chunks, embeddings, metadatas=metadatas
     )
-    return docsearch
+    return vstore
 
 def get_conversation_chain(vectorstore):
     #llm = huggingface_hub.HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
     chain = RetrievalQAWithSourcesChain.from_chain_type(
-        llm = llm,
+        llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(),
-        chain_type_kwargs = set_templates(),
+        #chain_type_kwargs = set_templates(),
     )
     return chain
 
@@ -109,12 +137,47 @@ async def main(message: cl.Message):
     # get previous chain
     chain = cl.user_session.get("chain")  
     cb = cl.AsyncLangchainCallbackHandler(
-        stream_final_answer=True, 
-        answer_prefix_tokens=["FINAL", "ANSWER"]
+        stream_final_answer=True, answer_prefix_tokens=["FINAL", "ANSWER"]
     )
     cb.answer_reached = True
-    res = await chain.acall(message.content, callbacks=[cb])
+    res = await chain.acall(message.content, callbacks=[cb])  
 
+    for attempt in range(max_retries):
+        try:
+            res = await chain.acall(message.content, 
+                                    callbacks = [cl.AsyncLangchainCallbackHandler()])
+            break
+        # except openai.Timeout:
+        #     # Implement exponential backoff
+        #     wait_time = backoff(attempt)
+        #     logger.exception(f"OpenAI API timeout occurred. Waiting {wait_time} seconds and trying again.")
+        #     time.sleep(wait_time)
+        # except openai.APIError:
+        #     # Implement exponential backoff
+        #     wait_time = backoff(attempt)
+        #     logger.exception(f"OpenAI API error occurred. Waiting {wait_time} seconds and trying again.")
+        #     time.sleep(wait_time)
+        # except openai.APIConnectionError:
+        #     # Implement exponential backoff
+        #     wait_time = backoff(attempt)
+        #     logger.exception(f"OpenAI API connection error occurred. Check your network settings, proxy configuration, SSL certificates, or firewall rules. Waiting {wait_time} seconds and trying again.")
+        #     time.sleep(wait_time)
+        # except openai.InvalidRequestError:
+        #     # Implement exponential backoff
+        #     wait_time = backoff(attempt)
+        #     logger.exception(f"OpenAI API invalid request. Check the documentation for the specific API method you are calling and make sure you are sending valid and complete parameters. Waiting {wait_time} seconds and trying again.")
+        #     time.sleep(wait_time)
+        # except openai.ServiceUnavailableError:
+        #     # Implement exponential backoff
+        #     wait_time = backoff(attempt)
+        #     logger.exception(f"OpenAI API service unavailable. Waiting {wait_time} seconds and trying again.")
+        #     time.sleep(wait_time)
+        except Exception:
+            wait_time = backoff(attempt)
+            logger.exception(f"Rate limit reached. Waiting {wait_time} seconds and trying again")
+            time.sleep(wait_time)
+            break
+    
     answer = res["answer"]
 
     ### cannot works every time diff
@@ -131,7 +194,7 @@ async def main(message: cl.Message):
     all_sources = [m["source"] for m in metadatas]
     texts = cl.user_session.get("texts")
 
-    if sources:
+    if sources != "":
         found_sources = []
 
         # Add the sources to the message
@@ -151,17 +214,17 @@ async def main(message: cl.Message):
             answer += f"\nSources: {', '.join(found_sources)}"
         else:
             answer += "\nNo source is found. "
+    
     else:
-        # no source is found, use LLM to complete
-        answer = get_completion(message.content)
+        answer = "The information is not provided in the given context, but I will try my best to answer: \n\n" + get_completion(message.content)
         
     if cb.has_streamed_final_answer:
         cb.final_stream.elements = source_elements
         await cb.final_stream.update()
     else:
         await cl.Message(content=answer, 
-                         elements=source_elements,
-                         author="AI",).send()
+                         elements=source_elements, 
+                         author="Chatbot").send()
     
 
 @cl.on_chat_start
@@ -169,7 +232,7 @@ async def start():
     cl.user_session.get("user")
 
     await cl.Avatar(
-        name="AI",
+        name="Chatbot",
         url="https://avatars.githubusercontent.com/u/128686189?s=400&u=a1d1553023f8ea0921fba0debbe92a8c5f840dd9&v=4",
     ).send()
 
@@ -181,16 +244,22 @@ async def start():
     files = None  
     while files == None:
         files = await cl.AskFileMessage(
-            content = "Hello! Ready to share your PDF?", 
-            accept=["application/pdf"],
-            author = "AI"
+            content = """
+                    👋 Hello there!\nFeel free to share a PDF or DOCX file containing the details or information you'd like assistance with!
+                    """, 
+            accept=["application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+            author = "Chatbot",
+            max_size_mb = 20,
+            timeout = 86400,
+            raise_on_timeout = False
         ).send()
 
     file = files[0]
 
     msg = cl.Message(
             content=f"Processing '{file.name}' ...",
-            author = "AI",
+            author = "Chatbot",
             )
     await msg.send()
 

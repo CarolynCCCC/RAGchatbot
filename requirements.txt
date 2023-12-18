@@ -6,3 +6,4 @@ tiktoken
 PyPDF2
 pymupdf
 pytesseract
+spacy
