@@ -8,3 +8,4 @@ pymupdf
 pytesseract
 spacy
 pyttsx3
+python-docx
