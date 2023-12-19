@@ -11,8 +11,9 @@ from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
 #from gpt4all import GPT4All
-import openai
 from openai import OpenAI
+import openai
+from llama import LLAMA
 import spacy
 import os
 import sys
@@ -25,7 +26,7 @@ import pyttsx3
 #set_api_key("fda3cd815581712c396688db1b9ee067")
 #available_voices = voices()
 
-llm = ChatOpenAI()
+llm = LLAMA()
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
