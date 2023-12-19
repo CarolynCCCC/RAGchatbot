@@ -7,3 +7,4 @@ PyPDF2
 pymupdf
 pytesseract
 spacy
+pyttsx3

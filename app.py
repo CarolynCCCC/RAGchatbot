@@ -20,11 +20,14 @@ from typing import Optional
 import logging   
 import time
 import random
+import pyttsx3
 
+#set_api_key("fda3cd815581712c396688db1b9ee067")
+#available_voices = voices()
 
 llm = ChatOpenAI()
-backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 1))
-max_retries = int(os.getenv("MAX_RETRIES", 5))
+backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
+max_retries = int(os.getenv("MAX_RETRIES", 10))
 
 logging.basicConfig(stream = sys.stdout,
                     format = '[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
@@ -74,7 +77,7 @@ def get_completion(question):
             },
             {
                 "role":"system",
-                "content":"You are a helpful assistant."
+                "content":"You are a helpful assistant, answer the questions given within a maximum of 1000 words"
             }
         ],
         temperature = 0.5,
@@ -130,6 +133,11 @@ def get_conversation_chain(vectorstore):
         #chain_type_kwargs = set_templates(),
     )
     return chain
+
+def speak_text(text):
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
 
 #continuously on a loop
 @cl.on_message
@@ -217,7 +225,8 @@ async def main(message: cl.Message):
     
     else:
         answer = "The information is not provided in the given context, but I will try my best to answer: \n\n" + get_completion(message.content)
-        
+    
+
     if cb.has_streamed_final_answer:
         cb.final_stream.elements = source_elements
         await cb.final_stream.update()
@@ -226,6 +235,7 @@ async def main(message: cl.Message):
                          elements=source_elements, 
                          author="Chatbot").send()
     
+    speak_text(answer)
 
 @cl.on_chat_start
 async def start():
