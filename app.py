@@ -235,7 +235,7 @@ async def main(message: cl.Message):
                          elements=source_elements, 
                          author="Chatbot").send()
     
-    speak_text(answer)
+    await speak_text(answer)
 
 @cl.on_chat_start
 async def start():
