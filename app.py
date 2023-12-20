@@ -1,13 +1,14 @@
 import chainlit as cl 
-from langchain.prompts import ChatPromptTemplate
-from langchain.prompts import SystemMessagePromptTemplate
-from langchain.prompts import HumanMessagePromptTemplate
+
 import PyPDF2
 from docx import Document
 from io import BytesIO
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
+import chromadb
+from langchain.schema import Document
+from chromadb.config import Settings
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
 #from gpt4all import GPT4All
@@ -21,11 +22,22 @@ import logging
 import time
 import random
 import pyttsx3
-
-#set_api_key("fda3cd815581712c396688db1b9ee067")
-#available_voices = voices()
+from typing import List
+from langchain.schema.embeddings import Embeddings
+from langchain.vectorstores.base import VectorStore
+from prompt import EXAMPLE_PROMPT, PROMPT, WELCOME_MESSAGE
+#from langchain.llms import Cohere
+#from langchain.llms import Together
 
 llm = ChatOpenAI()
+# llm = Together(
+#     model="togethercomputer/llama-2-70b-chat",
+#     temperature = 0,
+#     max_tokens = 1024,
+#     top_k=1,
+#     together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
+# )
+#llm = Cohere(cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
@@ -40,31 +52,6 @@ def backoff(attempt : int) -> float:
 # local LLM but my computer sucks 
 #gpt = GPT4All("gpt4all-falcon-q4_0.gguf")
 
-def set_templates():
-    system_template = """Use the following pieces of context to answer the users question.
-    If you don't know the answer, just say you don't know, never try to make up an answer.
-    ALWAYS return a "SOURCES" part in your answer.
-    The "SOURCES" part should be a reference to the source of the document from which you got your answer.
-
-    Example of your response should be:
-
-    ```
-    The answer is foo
-    SOURCES: xyz
-    ```
-
-    Begin!
-    ----------------
-    {summaries}"""
-
-    messages = [
-        SystemMessagePromptTemplate.from_template(system_template),
-        HumanMessagePromptTemplate.from_template("{question}"),
-    ]
-    prompt = ChatPromptTemplate.from_messages(messages)
-    chain_type_kwargs = {"prompt": prompt}
-    return chain_type_kwargs
-
 def get_completion(question):
     
     client = OpenAI()
@@ -77,7 +64,7 @@ def get_completion(question):
             },
             {
                 "role":"system",
-                "content":"You are a helpful assistant."
+                "content":"You are a helpful assistant. You will do some jokes if the user is sad."
             }
         ],
         temperature = 0.5,
@@ -86,21 +73,23 @@ def get_completion(question):
 
 def get_pdf_text(file):
     
-    pdf_stream = BytesIO(file.content)
+    file_stream = BytesIO(file.content)
     extension = file.name.split('.')[-1]
 
     text = ''
 
     if extension == "pdf":
-        reader = PyPDF2.PdfReader(pdf_stream)
+        reader = PyPDF2.PdfReader(file_stream)
         for i in range(len(reader.pages)):
             text +=  reader.pages[i].extract_text()
     elif extension  ==  "docx":
-        doc = Document(pdf_stream)
+        doc = Document(file_stream)
         paragraph_list = []
         for paragraph in doc.paragraphs:
             paragraph_list.append(paragraph.text)
         text = '\n'.join(paragraph_list)
+    elif extension == "txt":
+        text = file_stream.read().decode('utf-8')
     
     return text
 
@@ -115,12 +104,38 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text) #list of chunks
     return chunks 
 
+def create_search_engine(
+    *, docs: List[Document], embeddings: Embeddings, metadatas
+) -> VectorStore:
+# Initialize Chromadb client to enable resetting and disable telemtry
+    client = chromadb.EphemeralClient()
+    client_settings = Settings(
+        chroma_db_impl="duckdb+parquet",
+        anonymized_telemetry=False,
+        persist_directory=".chromadb",
+        allow_reset=True,
+    )
+
+    # Reset the search engine to ensure we don't use old copies.
+    # NOTE: we do not need this for production
+    search_engine = Chroma(client=client, client_settings=client_settings)
+    search_engine._client.reset()
+
+    search_engine = Chroma.from_texts(
+        client=client,
+        texts = docs,
+        embedding=embeddings,
+        client_settings=client_settings,
+        metadatas = metadatas
+    )
+
+    return search_engine
 
 async def get_vectorstore(text_chunks, metadatas):
     embeddings = OpenAIEmbeddings()
     #embeddings = HuggingFaceInstructEmbeddings(model_name = "hkunlp/instructor-xl")
-    vstore = await cl.make_async(Chroma.from_texts)(
-        text_chunks, embeddings, metadatas=metadatas
+    vstore = await cl.make_async(create_search_engine)(
+        docs = text_chunks, embeddings = embeddings, metadatas = metadatas
     )
     return vstore
 
@@ -130,7 +145,7 @@ def get_conversation_chain(vectorstore):
         llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(),
-        #chain_type_kwargs = set_templates(),
+        chain_type_kwargs = {"prompt": PROMPT, "document_prompt": EXAMPLE_PROMPT},
     )
     return chain
 
@@ -155,31 +170,6 @@ async def main(message: cl.Message):
             res = await chain.acall(message.content, 
                                     callbacks = [cl.AsyncLangchainCallbackHandler()])
             break
-        # except openai.Timeout:
-        #     # Implement exponential backoff
-        #     wait_time = backoff(attempt)
-        #     logger.exception(f"OpenAI API timeout occurred. Waiting {wait_time} seconds and trying again.")
-        #     time.sleep(wait_time)
-        # except openai.APIError:
-        #     # Implement exponential backoff
-        #     wait_time = backoff(attempt)
-        #     logger.exception(f"OpenAI API error occurred. Waiting {wait_time} seconds and trying again.")
-        #     time.sleep(wait_time)
-        # except openai.APIConnectionError:
-        #     # Implement exponential backoff
-        #     wait_time = backoff(attempt)
-        #     logger.exception(f"OpenAI API connection error occurred. Check your network settings, proxy configuration, SSL certificates, or firewall rules. Waiting {wait_time} seconds and trying again.")
-        #     time.sleep(wait_time)
-        # except openai.InvalidRequestError:
-        #     # Implement exponential backoff
-        #     wait_time = backoff(attempt)
-        #     logger.exception(f"OpenAI API invalid request. Check the documentation for the specific API method you are calling and make sure you are sending valid and complete parameters. Waiting {wait_time} seconds and trying again.")
-        #     time.sleep(wait_time)
-        # except openai.ServiceUnavailableError:
-        #     # Implement exponential backoff
-        #     wait_time = backoff(attempt)
-        #     logger.exception(f"OpenAI API service unavailable. Waiting {wait_time} seconds and trying again.")
-        #     time.sleep(wait_time)
         except Exception:
             wait_time = backoff(attempt)
             logger.exception(f"Rate limit reached. Waiting {wait_time} seconds and trying again")
@@ -187,17 +177,10 @@ async def main(message: cl.Message):
             break
     
     answer = res["answer"]
-
-    ### cannot works every time diff
-    # if "no mention" or "not mentioned"
-
-    # if answer is confident: continue
-    # if not, responsible of text completion
     
     sources = res["sources"].strip()
     source_elements = []
 
-    # Get the metadata and texts from the user session
     metadatas = cl.user_session.get("metadatas")
     all_sources = [m["source"] for m in metadatas]
     texts = cl.user_session.get("texts")
@@ -223,9 +206,6 @@ async def main(message: cl.Message):
         else:
             answer += "\nNo source is found. "
     
-    else:
-        answer = get_completion(message.content) + "\n\nNo source provided."
-    
 
     if cb.has_streamed_final_answer:
         cb.final_stream.elements = source_elements
@@ -234,7 +214,7 @@ async def main(message: cl.Message):
         await cl.Message(content=answer, 
                    elements=source_elements, 
                    author="Chatbot").send()
-    speak_text(answer)
+    #speak_text(answer)
 
 @cl.on_chat_start
 async def start():
@@ -253,11 +233,10 @@ async def start():
     files = None  
     while files == None:
         files = await cl.AskFileMessage(
-            content = """
-                    👋 Hello there!\nFeel free to share a PDF or DOCX file containing the details or information you'd like assistance with!
-                    """, 
+            content = WELCOME_MESSAGE, 
             accept=["application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "text/plain"],
             author = "Chatbot",
             max_size_mb = 20,
             timeout = 86400,
