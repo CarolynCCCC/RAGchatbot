@@ -10,11 +10,10 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chat_models import ChatOpenAI
+from langchain.llms import Together
 #from gpt4all import GPT4All
-
-from openai import OpenAI
 import openai
-from llama import LLAMA
+from openai import OpenAI
 import spacy
 import os
 import sys
@@ -26,9 +25,16 @@ import pyttsx3
 
 #set_api_key("fda3cd815581712c396688db1b9ee067")
 #available_voices = voices()
+#llm = ChatOpenAI()
 
+llm = Together(
+    model="togethercomputer/llama-2-70b-chat",
+    temperature = 0,
+    max_tokens = 1024,
+    top_k=1,
+    together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
+)
 
-llm = LLAMA()
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
@@ -80,7 +86,7 @@ def get_completion(question):
             },
             {
                 "role":"system",
-                "content":"You are a helpful assistant, answer the questions given within a maximum of 1000 words"
+                "content":"You are a helpful assistant"
             }
         ],
         temperature = 0.5,
@@ -130,10 +136,10 @@ async def get_vectorstore(text_chunks, metadatas):
 def get_conversation_chain(vectorstore):
     #llm = huggingface_hub.HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
     chain = RetrievalQAWithSourcesChain.from_chain_type(
-        llm,
+        llm = llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(),
-        #chain_type_kwargs = set_templates(),
+        chain_type_kwargs = set_templates(),
     )
     return chain
 
@@ -238,7 +244,7 @@ async def main(message: cl.Message):
                          elements=source_elements, 
                          author="Chatbot").send()
     
-    await speak_text(answer)
+        speak_text(answer)
 
 @cl.on_chat_start
 async def start():

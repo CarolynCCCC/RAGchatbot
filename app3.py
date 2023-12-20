@@ -21,11 +21,12 @@ import logging
 import time
 import random
 import pyttsx3
+from langchain.llms import Cohere
 
 #set_api_key("fda3cd815581712c396688db1b9ee067")
 #available_voices = voices()
 
-llm = ChatOpenAI()
+llm = Cohere(cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
@@ -77,7 +78,7 @@ def get_completion(question):
             },
             {
                 "role":"system",
-                "content":"You are a helpful assistant."
+                "content":"You are a helpful assistant. You will do some jokes if the user is sad."
             }
         ],
         temperature = 0.5,
@@ -223,8 +224,8 @@ async def main(message: cl.Message):
         else:
             answer += "\nNo source is found. "
     
-    else:
-        answer = get_completion(message.content) + "\n\nNo source provided."
+    # else:
+    #     answer = "The information is not provided in the given context, but I will try my best to answer: \n\n" + get_completion(message.content)
     
 
     if cb.has_streamed_final_answer:
@@ -254,7 +255,7 @@ async def start():
     while files == None:
         files = await cl.AskFileMessage(
             content = """
-                    👋 Hello there!\nFeel free to share a PDF or DOCX file containing the details or information you'd like assistance with!
+                    👋 Hello there!\nFeel free to share a PDF or DOCX file containing the details or information you'd like assistance with!\n
                     """, 
             accept=["application/pdf",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
