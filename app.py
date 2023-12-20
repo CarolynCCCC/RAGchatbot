@@ -29,6 +29,7 @@ from prompt import EXAMPLE_PROMPT, PROMPT, WELCOME_MESSAGE
 #from langchain.llms import Cohere
 #from langchain.llms import Together
 
+# llms
 llm = ChatOpenAI()
 # llm = Together(
 #     model="togethercomputer/llama-2-70b-chat",
@@ -37,7 +38,7 @@ llm = ChatOpenAI()
 #     top_k=1,
 #     together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
 # )
-#llm = Cohere(cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
+#llm = Cohere(model="command",cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
