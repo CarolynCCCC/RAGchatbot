@@ -1,5 +1,11 @@
 # flake8: noqa
 from langchain.prompts import PromptTemplate
+from langchain.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+)
 
 template = """Given the following extracted parts of a long document and a question, create a final answer with references ("SOURCES") below the final answer.
 ALWAYS return a "SOURCES" field in your answer, with the format "SOURCES: <source1>, <source2>, <source3>, ...".
@@ -13,7 +19,14 @@ QUESTION: {question}
 =========
 FINAL ANSWER:"""
 
-
+BASIC_PROMPT = ChatPromptTemplate(
+        messages=[
+        SystemMessagePromptTemplate.from_template(
+            "You are a nice chatbot having a conversation with a human."
+        ),
+        MessagesPlaceholder(variable_name="chat_history"),
+        HumanMessagePromptTemplate.from_template("{question}"),]
+    ) 
 
 PROMPT = PromptTemplate(
     template=template, input_variables=["summaries", "question"]

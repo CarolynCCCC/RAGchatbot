@@ -35,7 +35,7 @@ multi_modal = false
 
 [UI]
 # Name of the app and chatbot.
-name = "BAKAChatbot"
+name = "PandaiChat"
 
 # Show the readme while the conversation is empty.
 show_readme_as_default = true
@@ -57,7 +57,7 @@ hide_cot = false
 
 # Specify a CSS file that can be used to customize the user interface.
 # The CSS file can be served from the public directory or via an external link.
-# custom_css = "/public/test.css"
+custom_css = "/public/test.css"
 
 # Override default MUI light theme. (Check theme.ts)
 [UI.theme.light]
