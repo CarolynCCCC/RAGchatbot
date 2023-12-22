@@ -3,7 +3,6 @@ import PyPDF2
 import docx
 from docx import Document
 from io import BytesIO
-from langchain.prompts import ChatPromptTemplate
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
@@ -25,9 +24,11 @@ import pyttsx3
 from typing import List
 from langchain.schema.embeddings import Embeddings
 from langchain.vectorstores.base import VectorStore
-from prompt import EXAMPLE_PROMPT, BASIC_PROMPT, PROMPT, FILE_QUERY, BASIC_QUERY, WELCOMINGS
+from prompt import EXAMPLE_PROMPT, BASIC_PROMPT, TRANS_PROMPT, PROMPT, FILE_QUERY, BASIC_QUERY, TRANSLATOR, WELCOMINGS
+from languages import gpt
 from langchain.llms import Cohere
 from langchain.llms import Together
+
 
 default = "query" #or basic
 # llms
@@ -90,7 +91,7 @@ def get_text_chunks(text):
 def create_search_engine(
     *, docs: List[Document], embeddings: Embeddings, metadatas
 ) -> VectorStore:
-# Initialize Chromadb client to enable resetting and disable telemtry
+    # Initialize Chromadb client to enable resetting and disable telemtry
     client = chromadb.EphemeralClient()
     client_settings = Settings(
         chroma_db_impl="duckdb+parquet",
@@ -123,24 +124,15 @@ def get_conversation_chain(vectorstore):
     )
     return chain
 
-def get_completion(question):
-    
-    client = OpenAI()
-    response = client.chat.completions.create(
-        model = "gpt-3.5-turbo",
-        messages = [
-            {
-                "role":"user",
-                "content":question
-            },
-            {
-                "role":"system",
-                "content":"You are a helpful assistant."
-            }
-        ],
-        temperature = 0.5,
+def get_translation_chain(vectorstore):
+    llm = cl.user_session.get("llm")
+    chain = RetrievalQAWithSourcesChain.from_chain_type(
+        llm,
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever(),
+        chain_type_kwargs = {"prompt": TRANS_PROMPT},
     )
-    return response.choices[0].message.content
+    return chain
 
 def speak_text(text):
     engine = pyttsx3.init()
@@ -151,6 +143,7 @@ def speak_text(text):
 @cl.on_message
 async def main(message: cl.Message):
     chat_type = cl.user_session.get("actions")
+    chat = cl.user_session.get("chat_profile")
     chain = cl.user_session.get("chain") 
 
     if chat_type == "basic":
@@ -159,6 +152,18 @@ async def main(message: cl.Message):
         await cl.Message(content=res["text"], 
                     author="Chatbot").send()
         answer = res
+
+    elif chat_type == "translate":
+        if message.content == "list":
+            await cl.Message(content=gpt, 
+                        author="Chatbot").send()
+        
+        else:
+            res = await chain.acall(message.content, 
+                                    callbacks=[cl.AsyncLangchainCallbackHandler()])
+            await cl.Message(content=res["answer"], 
+                        author="Chatbot").send()
+            answer = res["answer"]
 
     elif chat_type == "file":
 
@@ -225,7 +230,7 @@ def setLLMChain():
     prompt = BASIC_PROMPT
     llm = cl.user_session.get("llm")
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    chain = LLMChain(llm = llm, prompt=prompt,verbose=True,memory=memory)
+    chain = LLMChain(llm = llm, prompt=prompt,verbose=False,memory=memory)
     cl.user_session.set("chain",chain)
 
 # see user wants basic or file query
@@ -245,14 +250,20 @@ async def action_callback(action: cl.Action):
         chain = setLLMChain()
         await cl.Message(content=BASIC_QUERY,
                          author="Chatbot").send()
+    
+    elif value == '2' or value == '0':
+        if value == '2':
+            content = TRANSLATOR
+            cl.user_session.set("actions", "translate")
+
+        elif value == '0':
+            content = FILE_QUERY
+            cl.user_session.set("actions", "file")
         
-    elif value == '0':
-        
-        cl.user_session.set("actions", "file")
         files = None  
         while files == None:
             files = await cl.AskFileMessage(
-                content = FILE_QUERY, 
+                content = content, 
                 accept=["application/pdf",
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         "text/plain"],
@@ -271,7 +282,9 @@ async def action_callback(action: cl.Action):
         await msg.send()
 
         text = get_text(file)
+
         text_chunks = get_text_chunks(text)
+
         metadatas = [{"source": f"{i}-pl"} for i in range(len(text_chunks))]
 
         #vectorstore = await get_vectorstore(text_chunks, metadatas)
@@ -281,10 +294,16 @@ async def action_callback(action: cl.Action):
         vstore = await cl.make_async(create_search_engine)(
             docs = text_chunks, embeddings = embeddings, metadatas = metadatas
         )
-        chain = get_conversation_chain(vstore)
 
-        msg.content = f"Processing '{file.name}' done.\nFeel free to ask any question!"
-        await msg.update()
+        if value == '2':
+            chain = get_translation_chain(vstore)
+            msg.content = f"Processing '{file.name}' done.\nYou can tell me the language you want. \nOr say 'list' to see the available language"
+            await msg.update()
+        
+        elif value == '0':
+            chain = get_conversation_chain(vstore)
+            msg.content = f"Processing '{file.name}' done.\nFeel free to ask any question!"
+            await msg.update()
 
         cl.user_session.set("metadatas", metadatas)
         cl.user_session.set("texts", text_chunks)
@@ -320,20 +339,19 @@ async def start():
     if chat == "GPT":
         llm = ChatOpenAI(
             model="gpt-3.5-turbo",
-            temperature = 0
+            temperature = 0.5
             )
     elif chat == "LLAMA-2":
         llm = Together(
             model="togethercomputer/llama-2-70b-chat",
-            temperature = 0,
-            max_tokens = 1024,
-            top_k=1,
+            temperature = 0.5,
             together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
             )
     elif chat == "COMMAND":
         llm = Cohere(
             model="command",
-            cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU'
+            cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU',
+            temperature = 0.5
             )
 
     cl.user_session.set("llm",llm)
@@ -349,10 +367,18 @@ async def start():
         path="user.jpg"
     ).send()
 
-    actions = [
-        cl.Action(name="confirm",label="1. Basic Chat 💬", value="1", description="Have a basic chat!"),
-        cl.Action(name="confirm",label="2. Ask your file 📚",value="0",description="Ask about your files!")
-    ]
+    if chat == "GPT":
+        actions = [
+            cl.Action(name="confirm",label="1. Basic Chat 💬", value="1", description="Have a basic chat!"),
+            cl.Action(name="confirm",label="2. Ask your file 📚",value="0",description="Ask about your files!"),
+            cl.Action(name="confirm",label="3. Translate documents A ↔️ 文", value="2",description="Translate your files!")
+        ]
+
+    else:
+        actions = [
+            cl.Action(name="confirm",label="1. Basic Chat 💬", value="1", description="Have a basic chat!"),
+            cl.Action(name="confirm",label="2. Ask your file 📚",value="0",description="Ask about your files!"),
+        ]
 
     cl.user_session.set("actions", actions)
 

@@ -1,4 +1,3 @@
-# flake8: noqa
 from langchain.prompts import PromptTemplate
 from langchain.prompts import (
     ChatPromptTemplate,
@@ -19,13 +18,26 @@ QUESTION: {question}
 =========
 FINAL ANSWER:"""
 
+trans_template = """Given the following extracted parts of a long document and a question,
+and your task is to translate the entire parts into the language specified in the question. 
+
+QUESTION: {question}
+=========
+{summaries}
+=========
+FINAL ANSWER:"""
+
+TRANS_PROMPT = PromptTemplate(
+    template=trans_template,input_variables=["summaries","question"]
+)
+
 BASIC_PROMPT = ChatPromptTemplate(
         messages=[
         SystemMessagePromptTemplate.from_template(
             "You are a nice chatbot having a conversation with a human."
         ),
         MessagesPlaceholder(variable_name="chat_history"),
-        HumanMessagePromptTemplate.from_template("{question}"),]
+        HumanMessagePromptTemplate.from_template("[INST]{question}[/INST]"),]
     ) 
 
 PROMPT = PromptTemplate(
@@ -45,6 +57,11 @@ FILE_QUERY = """\
 
 BASIC_QUERY = """\
 Hi! Feel free to ask any questions~
+"""
+
+TRANSLATOR = """\
+1. Upload a .pdf, .txt, or .docx file
+2. Tell the target language!
 """
 
 WELCOMINGS = """\
