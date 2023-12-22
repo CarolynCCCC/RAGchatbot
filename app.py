@@ -115,22 +115,31 @@ def create_search_engine(
     return search_engine
 
 def get_conversation_chain(vectorstore):
+    memory = ConversationBufferMemory(
+        memory_key='chat_history',
+        return_messages=True,
+        output_key="answer"
+    )
+
     llm = cl.user_session.get("llm")
     chain = RetrievalQAWithSourcesChain.from_chain_type(
         llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(),
         chain_type_kwargs = {"prompt": PROMPT, "document_prompt": EXAMPLE_PROMPT},
+        memory = memory,
     )
     return chain
 
 def get_translation_chain(vectorstore):
+    
     llm = cl.user_session.get("llm")
     chain = RetrievalQAWithSourcesChain.from_chain_type(
         llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(),
         chain_type_kwargs = {"prompt": TRANS_PROMPT},
+        verbose = True,
     )
     return chain
 
@@ -143,7 +152,6 @@ def speak_text(text):
 @cl.on_message
 async def main(message: cl.Message):
     chat_type = cl.user_session.get("actions")
-    chat = cl.user_session.get("chat_profile")
     chain = cl.user_session.get("chain") 
 
     if chat_type == "basic":
@@ -166,14 +174,14 @@ async def main(message: cl.Message):
             answer = res["answer"]
 
     elif chat_type == "file":
-
+        chat_history = []
         cb = cl.AsyncLangchainCallbackHandler(
             stream_final_answer=True, answer_prefix_tokens=["FINAL", "ANSWER"]
         )
         cb.answer_reached = True
         for attempt in range(max_retries):
             try:
-                res = await chain.acall(message.content, 
+                res = await chain.acall(message.content,
                                         callbacks = [cb])
                 break
             except Exception:
@@ -223,14 +231,15 @@ async def main(message: cl.Message):
                          author="Chatbot").send()
     #speak_text(answer)
 
-def setLLMChain():
-    memory = ConversationBufferMemory(
-        memory_key='chat_history',return_messages=True
-    )
+def get_basic_chain():
     prompt = BASIC_PROMPT
     llm = cl.user_session.get("llm")
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    chain = LLMChain(llm = llm, prompt=prompt,verbose=False,memory=memory)
+    chain = LLMChain(
+        llm, 
+        prompt=prompt,
+        verbose=False,
+        memory=memory)
     cl.user_session.set("chain",chain)
 
 # see user wants basic or file query
@@ -247,7 +256,7 @@ async def action_callback(action: cl.Action):
 
     if value == '1':
         cl.user_session.set("actions", "basic")
-        chain = setLLMChain()
+        chain = get_basic_chain()
         await cl.Message(content=BASIC_QUERY,
                          author="Chatbot").send()
     
@@ -339,7 +348,7 @@ async def start():
     if chat == "GPT":
         llm = ChatOpenAI(
             model="gpt-3.5-turbo",
-            temperature = 0.5
+            temperature = 0.5,
             )
     elif chat == "LLAMA-2":
         llm = Together(
@@ -351,7 +360,7 @@ async def start():
         llm = Cohere(
             model="command",
             cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU',
-            temperature = 0.5
+            temperature = 0.5,
             )
 
     cl.user_session.set("llm",llm)
@@ -359,7 +368,7 @@ async def start():
 
     await cl.Avatar(
         name="Chatbot",
-        url="https://avatars.githubusercontent.com/u/128686189?s=400&u=a1d1553023f8ea0921fba0debbe92a8c5f840dd9&v=4",
+        path="chatbot.jpeg"
     ).send()
 
     await cl.Avatar(
