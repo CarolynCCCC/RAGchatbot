@@ -236,7 +236,7 @@ def get_basic_chain():
     llm = cl.user_session.get("llm")
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     chain = LLMChain(
-        llm, 
+        llm = llm, 
         prompt=prompt,
         verbose=False,
         memory=memory)
