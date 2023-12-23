@@ -378,15 +378,15 @@ async def start():
 
     if chat == "GPT":
         actions = [
-            cl.Action(name="confirm",label="1. Basic Chat 💬", value="1", description="Have a basic chat!"),
-            cl.Action(name="confirm",label="2. Ask your file 📚",value="0",description="Ask about your files!"),
-            cl.Action(name="confirm",label="3. Translate documents A ↔️ 文", value="2",description="Translate your files!")
+            cl.Action(name="confirm",label="1. Documents Q&A 📚",value="0",description="Ask about your files!"),
+            cl.Action(name="confirm",label="2. Translate documents A ↔️ 文", value="2",description="Translate your files!"),
+            cl.Action(name="confirm",label="3. Basic Chat 💬", value="1", description="Have a basic chat!")
         ]
 
     else:
         actions = [
-            cl.Action(name="confirm",label="1. Basic Chat 💬", value="1", description="Have a basic chat!"),
-            cl.Action(name="confirm",label="2. Ask your file 📚",value="0",description="Ask about your files!"),
+            cl.Action(name="confirm",label="1. Documents Q&A 📚",value="0",description="Ask about your files!"),
+            cl.Action(name="confirm",label="2. Basic Chat 💬", value="1", description="Have a basic chat!"),
         ]
 
     cl.user_session.set("actions", actions)
