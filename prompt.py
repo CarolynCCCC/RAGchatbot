@@ -19,25 +19,25 @@ template = """Use the following pieces of context to answer the users question.
     ```
 
     Begin!
-    ----------------
+    ===========
     {summaries}
-    ----------------
+    ===========
 
     Given the following is the older conversation between you and user:
     {chat_history}
 
-    
+
     Answer the following question, if the question is a simple greeting, or thank you, or sorry, no need to return a "SOURCES" part in your answer.
     User:{question}
     """
 
-trans_template = """Given the following question and an extracted parts of a long document,
-and your task is to translate the entire parts into the language specified in the question. 
-
-QUESTION: {question}
+trans_template = """You are going to translate the following context into language specified in the question.
+If no language is specified, you do not need to translate, simply tell user to specify a language. 
 =========
 {summaries}
 =========
+QUESTION: {question}
+
 FINAL ANSWER:"""
 
 TRANS_PROMPT = PromptTemplate(

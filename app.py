@@ -41,7 +41,7 @@ default = "query" #or basic
 #     together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
 # )
 #llm = Cohere(model="command",cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
-backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 3))
+backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 20))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
 logging.basicConfig(stream = sys.stdout,
@@ -155,8 +155,17 @@ async def main(message: cl.Message):
     chain = cl.user_session.get("chain") 
 
     if chat_type == "basic":
-        res = await chain.acall(message.content, 
+        for attempt in range(max_retries):
+            try:
+                res = await chain.acall(message.content, 
                                 callbacks=[cl.AsyncLangchainCallbackHandler()])
+                break 
+            except Exception:
+                wait_time = backoff(attempt)
+                logger.exception(f"Rate limit reached. Waiting {wait_time} seconds and trying again")
+                time.sleep(wait_time)
+                break
+
         await cl.Message(content=res["text"], 
                     author="Chatbot").send()
         answer = res
@@ -174,7 +183,6 @@ async def main(message: cl.Message):
             answer = res["answer"]
 
     elif chat_type == "file":
-        chat_history = []
         cb = cl.AsyncLangchainCallbackHandler(
             stream_final_answer=True, answer_prefix_tokens=["FINAL", "ANSWER"]
         )
@@ -349,18 +357,19 @@ async def start():
         llm = ChatOpenAI(
             model="gpt-3.5-turbo",
             temperature = 0.5,
+            openai_api_key=os.environ["OPENAI_API_KEY"]
             )
     elif chat == "LLAMA-2":
         llm = Together(
             model="togethercomputer/llama-2-70b-chat",
             temperature = 0.5,
-            together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
+            together_api_key=os.environ["TOGETHER_API_KEY"]
             )
     elif chat == "COMMAND":
         llm = Cohere(
             model="command",
-            cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU',
             temperature = 0.5,
+            cohere_api_key=os.environ["COHERE_API_KEY"]
             )
 
     cl.user_session.set("llm",llm)
@@ -376,17 +385,11 @@ async def start():
         path="user.jpg"
     ).send()
 
-    if chat == "GPT":
-        actions = [
-            cl.Action(name="confirm",label="1. Documents Q&A 📚",value="0",description="Ask about your files!"),
-            cl.Action(name="confirm",label="2. Translate documents A ↔️ 文", value="2",description="Translate your files!"),
-            cl.Action(name="confirm",label="3. Basic Chat 💬", value="1", description="Have a basic chat!")
-        ]
-
-    else:
-        actions = [
-            cl.Action(name="confirm",label="1. Documents Q&A 📚",value="0",description="Ask about your files!"),
-            cl.Action(name="confirm",label="2. Basic Chat 💬", value="1", description="Have a basic chat!"),
+    
+    actions = [
+        cl.Action(name="confirm",label="1. Documents Q&A 📚",value="0",description="Ask about your files!"),
+        cl.Action(name="confirm",label="2. Translate documents A ↔️ 文", value="2",description="Translate your files!"),
+        cl.Action(name="confirm",label="3. Basic Chat 💬", value="1", description="Have a basic chat!")
         ]
 
     cl.user_session.set("actions", actions)
