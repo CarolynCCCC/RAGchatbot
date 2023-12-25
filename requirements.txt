@@ -10,5 +10,5 @@ spacy
 pyttsx3
 python-docx
 docx
-#cohere
-#together
+cohere
+together

@@ -24,7 +24,7 @@ from typing import List
 from langchain.schema.embeddings import Embeddings
 from langchain.vectorstores.base import VectorStore
 from prompt import EXAMPLE_PROMPT, BASIC_PROMPT, TRANS_PROMPT, PROMPT, FILE_QUERY, BASIC_QUERY, TRANSLATOR, WELCOMINGS
-from languages import gpt
+from languages import gpt, llama, cohere
 from langchain.llms import Cohere
 from langchain.llms import Together
 
@@ -74,7 +74,7 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text) #list of chunks
     return chunks 
 
-def create_search_engine(
+def get_vstore(
     *, docs: List[Document], embeddings: Embeddings, metadatas
 ) -> VectorStore:
     # Initialize Chromadb client to enable resetting and disable telemtry
@@ -86,7 +86,7 @@ def create_search_engine(
         allow_reset=True,
     )
 
-    # Reset the search engine to ensure we don't use old copies.
+    # Reset the vstore, prevent old files confusing
     search_engine = Chroma(client=client, client_settings=client_settings)
     search_engine._client.reset()
 
@@ -129,6 +129,17 @@ def get_translation_chain(vectorstore):
     )
     return chain
 
+def get_basic_chain():
+    prompt = BASIC_PROMPT
+    llm = cl.user_session.get("llm")
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    chain = LLMChain(
+        llm = llm, 
+        prompt=prompt,
+        verbose=False,
+        memory=memory)
+    cl.user_session.set("chain",chain)
+
 def speak_text(text):
     engine = pyttsx3.init()
     engine.say(text)
@@ -159,7 +170,7 @@ async def main(message: cl.Message):
 
     elif chat_type == "translate":
         if message.content == "list":
-            await cl.Message(content=gpt, 
+            await cl.Message(content=cl.user_session.get("lg"), 
                         author="Chatbot").send()
         
         else:
@@ -222,23 +233,11 @@ async def main(message: cl.Message):
                     elements=source_elements, 
                     author="Chatbot").send()
             
-            speak_text(answer)
+            #speak_text(answer)
     else:
         await cl.Message(content="Please select one of the option to start!",
                          author="Chatbot").send()
         
-
-def get_basic_chain():
-    prompt = BASIC_PROMPT
-    llm = cl.user_session.get("llm")
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    chain = LLMChain(
-        llm = llm, 
-        prompt=prompt,
-        verbose=False,
-        memory=memory)
-    cl.user_session.set("chain",chain)
-
 # see user wants basic or file query
 @cl.action_callback(name="confirm")
 async def action_callback(action: cl.Action):
@@ -297,7 +296,7 @@ async def action_callback(action: cl.Action):
 
         embeddings = OpenAIEmbeddings()
         #embeddings = HuggingFaceInstructEmbeddings(model_name = "hkunlp/instructor-xl")
-        vstore = await cl.make_async(create_search_engine)(
+        vstore = await cl.make_async(get_vstore)(
             docs = text_chunks, 
             embeddings = embeddings, 
             metadatas = metadatas
@@ -350,30 +349,33 @@ async def start():
             temperature = 0.5,
             openai_api_key=os.environ["OPENAI_API_KEY"]
             )
+        cl.user_session.set("lg",gpt)
     elif chat == "LLAMA-2":
         llm = Together(
             model="togethercomputer/llama-2-70b-chat",
             temperature = 0.5,
             together_api_key=os.environ["TOGETHER_API_KEY"]
             )
+        cl.user_session.set("lg",llama)
     elif chat == "COMMAND":
         llm = Cohere(
             model="command",
             temperature = 0.5,
             cohere_api_key=os.environ["COHERE_API_KEY"]
             )
+        cl.user_session.set("lg",cohere)
 
     cl.user_session.set("llm",llm)
     cl.user_session.get("user")
 
     await cl.Avatar(
         name="Chatbot",
-        path="chatbot.jpeg"
+        path="assets/chatbot.jpeg"
     ).send()
 
     await cl.Avatar(
         name="admin",
-        path="user.jpg"
+        path="assets/user.jpg"
     ).send()
 
     
