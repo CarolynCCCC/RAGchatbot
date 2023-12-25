@@ -13,7 +13,6 @@ from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chains import LLMChain
 from langchain.chains.conversation.memory import ConversationBufferMemory
 from langchain.chat_models import ChatOpenAI
-from openai import OpenAI
 import os
 import sys
 from typing import Optional
@@ -30,17 +29,6 @@ from langchain.llms import Cohere
 from langchain.llms import Together
 
 
-default = "query" #or basic
-# llms
-#llm = ChatOpenAI()
-# llm = Together(
-#     model="togethercomputer/llama-2-70b-chat",
-#     temperature = 0,
-#     max_tokens = 1024,
-#     top_k=1,
-#     together_api_key="3a72b2ff879a8c06e7198b6fc5515957a5f3515bcddbe8138d442b221c8aee61"
-# )
-#llm = Cohere(model="command",cohere_api_key='5Yw91akglQ0ERsH0NxmiyG31C4w37UFC5oVozKAU')
 backoff_in_seconds = float(os.getenv("BACKOFF_IN_SECONDS", 20))
 max_retries = int(os.getenv("MAX_RETRIES", 10))
 
@@ -52,8 +40,6 @@ logger = logging.getLogger(__name__)
 def backoff(attempt : int) -> float:
     return backoff_in_seconds * 2**attempt + random.uniform(0, 1)
 
-# local LLM but my computer sucks 
-#gpt = GPT4All("gpt4all-falcon-q4_0.gguf")
 
 def get_text(file):
 
@@ -168,7 +154,8 @@ async def main(message: cl.Message):
 
         await cl.Message(content=res["text"], 
                     author="Chatbot").send()
-        answer = res
+        answer = res["text"]
+        #speak_text(answer)
 
     elif chat_type == "translate":
         if message.content == "list":
@@ -234,10 +221,12 @@ async def main(message: cl.Message):
             await cl.Message(content=answer, 
                     elements=source_elements, 
                     author="Chatbot").send()
+            
+            speak_text(answer)
     else:
         await cl.Message(content="Please select one of the option to start!",
                          author="Chatbot").send()
-    #speak_text(answer)
+        
 
 def get_basic_chain():
     prompt = BASIC_PROMPT
@@ -302,14 +291,16 @@ async def action_callback(action: cl.Action):
 
         text_chunks = get_text_chunks(text)
 
-        metadatas = [{"source": f"{i}-pl"} for i in range(len(text_chunks))]
+        metadatas = [{"source": f"pg-{i}"} for i in range(len(text_chunks))]
 
         #vectorstore = await get_vectorstore(text_chunks, metadatas)
 
         embeddings = OpenAIEmbeddings()
         #embeddings = HuggingFaceInstructEmbeddings(model_name = "hkunlp/instructor-xl")
         vstore = await cl.make_async(create_search_engine)(
-            docs = text_chunks, embeddings = embeddings, metadatas = metadatas
+            docs = text_chunks, 
+            embeddings = embeddings, 
+            metadatas = metadatas
         )
 
         if value == '2':

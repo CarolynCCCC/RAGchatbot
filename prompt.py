@@ -28,15 +28,14 @@ template = """Use the following pieces of context to answer the users question.
 
 
     Answer the following question, if the question is a simple greeting, or thank you, or sorry, no need to return a "SOURCES" part in your answer.
-    User:{question}
+    User:[INST]{question}[/INST]
     """
 
 trans_template = """You are going to translate the following context into language specified in the question.
-If no language is specified, you do not need to translate, simply tell user to specify a language. 
 =========
 {summaries}
 =========
-QUESTION: {question}
+QUESTION: [INST]{question}[/INST]
 
 FINAL ANSWER:"""
 
